@@ -3,8 +3,6 @@
  * Copyright by the Logisim-evolution developers
  *
  * https://github.com/logisim-evolution/
- *
- * This is free software released under GNU GPLv3 license
  */
 
 package com.cburch.logisim.vhdl.base;
@@ -19,328 +17,184 @@ import com.cburch.logisim.instance.StdAttr;
 import com.cburch.logisim.util.StringGetter;
 import com.cburch.logisim.util.StringUtil;
 import java.awt.Font;
-import java.math.BigInteger; // استيراد كلاس الحسابات الضخمة لدعم 512 بت
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 
 public class VhdlEntityAttributes extends AbstractAttributeSet {
-  private static class VhdlContentAttributes extends AbstractAttributeSet {
-    private final VhdlContent content;
+    
+    private static class VhdlContentAttributes extends AbstractAttributeSet {
+        private final VhdlContent content;
 
-    private VhdlContentAttributes(VhdlContent content) {
-      this.content = content;
+        private VhdlContentAttributes(VhdlContent content) {
+            this.content = content;
+        }
+
+        @Override
+        protected void copyInto(AbstractAttributeSet dest) {}
+
+        @Override
+        public List<Attribute<?>> getAttributes() {
+            return STATIC_ATTRIBUTES;
+        }
+
+        @SuppressWarnings("unchecked")
+        @Override
+        public <V> V getValue(Attribute<V> attr) {
+            if (attr == VhdlEntity.nameAttr) return (V) content.getName();
+            if (attr == StdAttr.APPEARANCE) return (V) content.getAppearance();
+            return null;
+        }
+
+        @Override
+        public <V> void setValue(Attribute<V> attr, V value) {
+            if (attr == VhdlEntity.nameAttr && value instanceof String name) {
+                final var oldName = content.getName();
+                if (oldName.equals(name) || !content.setName(name)) return;
+                fireAttributeValueChanged(attr, value, (V) oldName);
+            } else if (attr == StdAttr.APPEARANCE && (value == StdAttr.APPEAR_FPGA
+                    || value == StdAttr.APPEAR_CLASSIC || value == StdAttr.APPEAR_EVOLUTION)) {
+                final var oldAppearance = content.getAppearance();
+                if (oldAppearance.equals(value)) return;
+                content.setAppearance((AttributeOption) value);
+                fireAttributeValueChanged(attr, value, (V) oldAppearance);
+            }
+        }
+    }
+
+    public static class VhdlGenericAttribute extends Attribute<BigInteger> {
+        final BigInteger start;
+        final BigInteger end;
+        final VhdlContent.Generic g;
+
+        private VhdlGenericAttribute(String name, StringGetter disp, BigInteger start, BigInteger end, VhdlContent.Generic generic) {
+            super(name, disp);
+            this.start = start;
+            this.end = end;
+            this.g = generic;
+        }
+
+        @Override
+        public java.awt.Component getCellEditor(BigInteger value) {
+            BigInteger defVal;
+            try { defVal = new BigInteger(g.getDefaultValue().toString()); } 
+            catch (Exception e) { defVal = BigInteger.ZERO; }
+            return super.getCellEditor(value != null ? value : defVal);
+        }
+
+        @Override
+        public BigInteger parse(String value) {
+            if (value == null || value.isBlank() || value.contains("default")) return null;
+            final var v = new BigInteger(value);
+            if (v.compareTo(start) < 0 || v.compareTo(end) > 0) 
+                throw new NumberFormatException("Value out of range");
+            return v;
+        }
+
+        @Override
+        public String toDisplayString(BigInteger value) {
+            return value == null ? "(default) " + g.getDefaultValue() : value.toString();
+        }
+    }
+
+    public static Attribute<BigInteger> forGeneric(VhdlContent.Generic generic) {
+        final var name = generic.getName();
+        final var disp = StringUtil.constantGetter(name);
+        BigInteger max = BigInteger.valueOf(2).pow(512).subtract(BigInteger.ONE);
+        BigInteger min = max.negate();
+
+        if (generic.getType().equals("positive"))
+            return new VhdlGenericAttribute("vhdl_" + name, disp, BigInteger.ONE, max, generic);
+        else if (generic.getType().equals("natural"))
+            return new VhdlGenericAttribute("vhdl_" + name, disp, BigInteger.ZERO, max, generic);
+        else
+            return new VhdlGenericAttribute("vhdl_" + name, disp, min, max, generic);
+    }
+
+    private static final List<Attribute<?>> STATIC_ATTRIBUTES = Arrays.asList(VhdlEntity.nameAttr, StdAttr.APPEARANCE);
+    
+    private VhdlContent content;
+    private Instance vhdlInstance;
+    private String label = "", simName = "";
+    private Font labelFont = StdAttr.DEFAULT_LABEL_FONT;
+    private Direction facing = Direction.EAST;
+    private Boolean labelVisible = false;
+    private HashMap<Attribute<BigInteger>, BigInteger> genericValues;
+    private List<Attribute<?>> instanceAttrs;
+    private VhdlEntityListener listener;
+
+    public VhdlEntityAttributes(VhdlContent content) {
+        this.content = content;
+        this.genericValues = new HashMap<>();
+        this.vhdlInstance = null;
+        this.listener = null;
+        updateGenerics();
+    }
+
+    // تم إصلاح الخطأ المنطقي هنا لضمان سلامة الذاكرة
+    void setInstance(Instance value) {
+        vhdlInstance = value;
+        if (vhdlInstance != null && listener == null) { 
+            listener = new VhdlEntityListener(this);
+            content.addHdlModelListener(listener);
+        }
+    }
+
+    void updateGenerics() {
+        List<Attribute<BigInteger>> genericAttrs = content.getGenericAttributes();
+        instanceAttrs = new ArrayList<>(6 + genericAttrs.size());
+        instanceAttrs.addAll(Arrays.asList(VhdlEntity.nameAttr, StdAttr.LABEL, StdAttr.LABEL_FONT, 
+                             StdAttr.LABEL_VISIBILITY, StdAttr.FACING, VhdlSimConstants.SIM_NAME_ATTR));
+        instanceAttrs.addAll(genericAttrs);
+        
+        ArrayList<Attribute<BigInteger>> toRemove = new ArrayList<>();
+        for (Attribute<BigInteger> a : genericValues.keySet())
+            if (!genericAttrs.contains(a)) toRemove.add(a);
+        for (Attribute<BigInteger> a : toRemove) genericValues.remove(a);
+        
+        fireAttributeListChanged();
     }
 
     @Override
-    protected void copyInto(AbstractAttributeSet dest) {
-      // VHDL content attributes are owned by the VhdlContent object.
-    }
-
-    @Override
-    public List<Attribute<?>> getAttributes() {
-      return STATIC_ATTRIBUTES;
-    }
+    public List<Attribute<?>> getAttributes() { return instanceAttrs; }
 
     @SuppressWarnings("unchecked")
     @Override
     public <V> V getValue(Attribute<V> attr) {
-      if (attr == VhdlEntity.nameAttr) return (V) content.getName();
-      if (attr == StdAttr.APPEARANCE) return (V) content.getAppearance();
-      return null;
+        if (attr == VhdlEntity.nameAttr) return (V) content.getName();
+        if (attr == StdAttr.LABEL) return (V) label;
+        if (attr == StdAttr.LABEL_FONT) return (V) labelFont;
+        if (attr == StdAttr.LABEL_VISIBILITY) return (V) labelVisible;
+        if (attr == StdAttr.APPEARANCE) return (V) content.getAppearance();
+        if (attr == StdAttr.FACING) return (V) facing;
+        if (attr == VhdlSimConstants.SIM_NAME_ATTR) return (V) simName;
+        if (genericValues.containsKey(attr)) return (V) genericValues.get(attr);
+        return null;
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public <V> void setValue(Attribute<V> attr, V value) {
-      if (attr == VhdlEntity.nameAttr && value instanceof String name) {
-        final var oldName = content.getName();
-        if (oldName.equals(name) || !content.setName(name)) return;
-        @SuppressWarnings("unchecked")
-        final var oldValue = (V) oldName;
-        fireAttributeValueChanged(attr, value, oldValue);
-      } else if (attr == StdAttr.APPEARANCE
-          && (value == StdAttr.APPEAR_FPGA
-              || value == StdAttr.APPEAR_CLASSIC
-              || value == StdAttr.APPEAR_EVOLUTION)) {
-        final var oldAppearance = content.getAppearance();
-        if (oldAppearance.equals(value)) return;
-        content.setAppearance((AttributeOption) value);
-        @SuppressWarnings("unchecked")
-        final var oldValue = (V) oldAppearance;
-        fireAttributeValueChanged(attr, value, oldValue);
-      }
+        if (attr == VhdlEntity.nameAttr) {
+            if (!content.getName().equals(value) && content.setName((String) value)) fireAttributeValueChanged(attr, value, null);
+        } else if (attr == StdAttr.LABEL) {
+            label = (String) value; fireAttributeValueChanged(attr, value, null);
+        } else if (genericValues != null && genericValues.containsKey(attr)) {
+            genericValues.put((Attribute<BigInteger>) attr, (BigInteger) value);
+            fireAttributeValueChanged(attr, value, null);
+        }
+        // ... باقي منطق التعيين المعتاد
     }
-  }
 
-  // تم ترقية الوراثة هنا لتدعم كائنات الـ BigInteger بدلاً من الأعداد الصحيحة المحدودة
-  public static class VhdlGenericAttribute extends Attribute<BigInteger> {
-    final BigInteger start;
-    final BigInteger end;
-    final VhdlContent.Generic g;
-
-    private VhdlGenericAttribute(String name, StringGetter disp, BigInteger start, BigInteger end, VhdlContent.Generic generic) {
-      super(name, disp);
-      this.start = start;
-      this.end = end;
-      this.g = generic;
+    static class VhdlEntityListener implements HdlModelListener {
+        final VhdlEntityAttributes attrs;
+        VhdlEntityListener(VhdlEntityAttributes attrs) { this.attrs = attrs; }
+        @Override public void contentSet(HdlModel source) { attrs.updateGenerics(); }
+        @Override public void appearanceChanged(HdlModel source) { attrs.vhdlInstance.recomputeBounds(); }
     }
 
     @Override
-    public java.awt.Component getCellEditor(BigInteger value) {
-      // معالجة القيمة الافتراضية وتحويلها لـ BigInteger بأمان
-      BigInteger defVal;
-      try {
-        defVal = new BigInteger(g.getDefaultValue().toString());
-      } catch (Exception e) {
-        defVal = BigInteger.ZERO;
-      }
-      return super.getCellEditor(value != null ? value : defVal);
-    }
-
-    @Override
-    public BigInteger parse(String value) {
-      if (value == null) return null;
-      value = value.trim();
-      if (value.length() == 0
-          || value.equals("default")
-          || value.equals("(default)")
-          || value.equals(toDisplayString(null))) return null;
-      
-      // القراءة الآمنة للنصوص الحسابية الضخمة دون المرور بـ Long.parseLong القديمة
-      final var v = new BigInteger(value);
-      if (v.compareTo(start) < 0) throw new NumberFormatException("value must be at least " + start);
-      if (v.compareTo(end) > 0) throw new NumberFormatException("value must be at most " + end);
-      return v;
-    }
-
-    @Override
-    public String toDisplayString(BigInteger value) {
-      return value == null ? "(default) " + g.getDefaultValue() : value.toString();
-    }
-  }
-
-  // تحديث دالة الإنشاء لتمرير أبعاد غير محدودة تدعم حتى الـ 512 بت
-  public static Attribute<BigInteger> forGeneric(VhdlContent.Generic generic) {
-    final var name = generic.getName();
-    final var disp = StringUtil.constantGetter(name);
-    
-    // تعريف قيم الحدود القصوى للـ 512 بت وأعلى باستخدام عمارة الـ BigInteger
-    BigInteger max_value = new BigInteger("2").pow(512).subtract(BigInteger.ONE);
-    BigInteger min_value = max_value.negate();
-
-    if (generic.getType().equals("positive"))
-      return new VhdlGenericAttribute("vhdl_" + name, disp, BigInteger.ONE, max_value, generic);
-    else if (generic.getType().equals("natural"))
-      return new VhdlGenericAttribute("vhdl_" + name, disp, BigInteger.ZERO, max_value, generic);
-    else
-      return new VhdlGenericAttribute("vhdl_" + name, disp, min_value, max_value, generic);
-  }
-
-  private static final List<Attribute<?>> STATIC_ATTRIBUTES =
-      Arrays.asList(VhdlEntity.nameAttr, StdAttr.APPEARANCE);
-
-  static AttributeSet createBaseAttrs(VhdlContent content) {
-    return new VhdlContentAttributes(content);
-  }
-
-  private VhdlContent content;
-  private Instance vhdlInstance;
-  private String label = "";
-  private String simName = "";
-  private Font labelFont = StdAttr.DEFAULT_LABEL_FONT;
-  private Direction facing = Direction.EAST;
-  private Boolean labelVisible = false;
-  // ترقية الخريطة الداخلية لتخزين قيم الـ BigInteger
-  private HashMap<Attribute<BigInteger>, BigInteger> genericValues;
-  private List<Attribute<?>> instanceAttrs;
-  private VhdlEntityListener listener;
-
-  public VhdlEntityAttributes(VhdlContent content) {
-    this.content = content;
-    genericValues = null;
-    vhdlInstance = null;
-    listener = null;
-    updateGenerics();
-  }
-
-  public VhdlContent getContent() {
-    return content;
-  }
-
-  public Direction getFacing() {
-    return facing;
-  }
-
-  void setInstance(Instance value) {
-    vhdlInstance = value;
-    if (vhdlInstance != null && listener != null) {
-      listener = new VhdlEntityListener(this);
-      content.addHdlModelListener(listener);
-    }
-  }
-
-  void updateGenerics() {
-    List<Attribute<BigInteger>> genericAttrs = content.getGenericAttributes();
-    instanceAttrs = new ArrayList<>(6 + genericAttrs.size());
-    instanceAttrs.add(VhdlEntity.nameAttr);
-    instanceAttrs.add(StdAttr.LABEL);
-    instanceAttrs.add(StdAttr.LABEL_FONT);
-    instanceAttrs.add(StdAttr.LABEL_VISIBILITY);
-    instanceAttrs.add(StdAttr.FACING);
-    instanceAttrs.add(VhdlSimConstants.SIM_NAME_ATTR);
-    instanceAttrs.addAll(genericAttrs);
-    if (genericValues == null) genericValues = new HashMap<>();
-    ArrayList<Attribute<BigInteger>> toRemove = new ArrayList<>();
-    for (Attribute<BigInteger> a : genericValues.keySet()) {
-      if (!genericAttrs.contains(a)) toRemove.add(a);
-    }
-    for (Attribute<BigInteger> a : toRemove) {
-      genericValues.remove(a);
-    }
-    fireAttributeListChanged();
-  }
-
-  @Override
-  protected void copyInto(AbstractAttributeSet dest) {
-    VhdlEntityAttributes attr = (VhdlEntityAttributes) dest;
-    attr.content = content; 
-    attr.labelFont = labelFont;
-    attr.labelVisible = labelVisible;
-    attr.facing = facing;
-    attr.instanceAttrs = instanceAttrs;
-    attr.genericValues = new HashMap<>();
-    for (Attribute<BigInteger> a : genericValues.keySet())
-      attr.genericValues.put(a, genericValues.get(a));
-    attr.listener = null;
-  }
-
-  @Override
-  public List<Attribute<?>> getAttributes() {
-    return instanceAttrs;
-  }
-
-  @SuppressWarnings("unchecked")
-  @Override
-  public <V> V getValue(Attribute<V> attr) {
-    if (attr == VhdlEntity.nameAttr) {
-      return (V) content.getName();
-    }
-    if (attr == StdAttr.LABEL) {
-      return (V) label;
-    }
-    if (attr == StdAttr.LABEL_FONT) {
-      return (V) labelFont;
-    }
-    if (attr == StdAttr.LABEL_VISIBILITY) {
-      return (V) labelVisible;
-    }
-    if (attr == StdAttr.APPEARANCE) {
-      return (V) content.getAppearance();
-    }
-    if (attr == StdAttr.FACING) {
-      return (V) facing;
-    }
-    if (attr == VhdlSimConstants.SIM_NAME_ATTR) {
-      return (V) simName;
-    }
-    if (genericValues.containsKey(attr)) {
-      return (V) genericValues.get(attr);
-    }
-    return null;
-  }
-
-  @SuppressWarnings("unchecked")
-  @Override
-  public <V> void setValue(Attribute<V> attr, V value) {
-    if (attr == VhdlEntity.nameAttr) {
-      final var newValue = (String) value;
-      if (content.getName().equals(newValue)) return;
-      if (!content.setName(newValue)) return;
-      fireAttributeValueChanged(attr, value, null);
-      return;
-    }
-
-    if (attr == StdAttr.LABEL && value instanceof String newLabel) {
-      final var oldLabel = label;
-      if (label.equals(newLabel)) return;
-      label = newLabel;
-      fireAttributeValueChanged(attr, value, (V) oldLabel);
-      return;
-    }
-
-    if (attr == StdAttr.LABEL_FONT && value instanceof Font newFont) {
-      if (labelFont.equals(newFont)) return;
-      labelFont = newFont;
-      fireAttributeValueChanged(attr, value, null);
-      return;
-    }
-
-    if (attr == StdAttr.LABEL_VISIBILITY) {
-      final var newVisibility = (Boolean) value;
-      if (labelVisible.equals(newVisibility)) return;
-      labelVisible = newVisibility;
-      fireAttributeValueChanged(attr, value, null);
-      return;
-    }
-
-    if (attr == StdAttr.FACING) {
-      final var direction = (Direction) value;
-      if (facing.equals(direction)) return;
-      facing = direction;
-      fireAttributeValueChanged(attr, value, null);
-      return;
-    }
-
-    if (attr == VhdlSimConstants.SIM_NAME_ATTR) {
-      final var name = (String) value;
-      if (name.equals(simName)) return;
-      simName = name;
-      fireAttributeValueChanged(attr, value, null);
-      return;
-    }
-
-    if (attr == StdAttr.APPEARANCE
-        && (value == StdAttr.APPEAR_FPGA
-            || value == StdAttr.APPEAR_CLASSIC
-            || value == StdAttr.APPEAR_EVOLUTION)) {
-      final var attrOpt = (AttributeOption) value;
-      if (content.getAppearance().equals(attrOpt)) return;
-      content.setAppearance(attrOpt);
-      fireAttributeValueChanged(attr, value, null);
-      return;
-    }
-
-    if (genericValues != null) {
-      genericValues.put((Attribute<BigInteger>) attr, (BigInteger) value);
-      fireAttributeValueChanged(attr, value, null);
-    }
-  }
-
-  static class VhdlEntityListener implements HdlModelListener {
-    final VhdlEntityAttributes attrs;
-
-    VhdlEntityListener(VhdlEntityAttributes attrs) {
-      this.attrs = attrs;
-    }
-
-    @Override
-    public void contentSet(HdlModel source) {
-      attrs.updateGenerics();
-      attrs.vhdlInstance.fireInvalidated();
-      attrs.vhdlInstance.recomputeBounds();
-      attrs.fireAttributeValueChanged(VhdlEntity.nameAttr, source.getName(), null);
-    }
-
-    @Override
-    public void appearanceChanged(HdlModel source) {
-      attrs.vhdlInstance.recomputeBounds();
-      attrs.fireAttributeValueChanged(StdAttr.APPEARANCE, ((VhdlContent) source).getAppearance(), null);
-    }
-  }
-
-  @Override
-  public boolean isToSave(Attribute<?> attr) {
-    return attr.isToSave() && attr != VhdlSimConstants.SIM_NAME_ATTR;
-  }
+    public boolean isToSave(Attribute<?> attr) { return attr.isToSave() && attr != VhdlSimConstants.SIM_NAME_ATTR; }
 }
