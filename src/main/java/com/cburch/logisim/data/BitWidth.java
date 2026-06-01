@@ -12,6 +12,7 @@ package com.cburch.logisim.data;
 import com.cburch.logisim.gui.generic.ComboBox;
 import com.cburch.logisim.util.StringGetter;
 import java.awt.Component;
+import java.math.BigInteger; // استيراد مكتبة الأرقام الكبيرة الحجم
 
 public class BitWidth implements Comparable<BitWidth> {
   static class Attribute extends com.cburch.logisim.data.Attribute<BitWidth> {
@@ -23,7 +24,8 @@ public class BitWidth implements Comparable<BitWidth> {
       super(name, disp);
       this.min = MINWIDTH;
       this.max = MAXWIDTH;
-      int[] defaults = { 1, 2, 3, 4, 5, 6, 7, 8, 16, 24, 32, 64 };
+      // إضافة الخيارات الكبيرة 128 و 256 و 512 إلى القائمة المنسدلة للبرنامج
+      int[] defaults = { 1, 2, 3, 4, 5, 6, 7, 8, 16, 24, 32, 64, 128, 256, 512 };
       choices = new BitWidth[defaults.length];
       for (int i = 0; i < defaults.length; i++) {
         choices[i] = BitWidth.create(defaults[i]);
@@ -35,8 +37,7 @@ public class BitWidth implements Comparable<BitWidth> {
       this.min = min;
       this.max = max;
       int length = max - min + 1;
-      if (length > 12) {
-        // there are too many dropdown options, so use the default editor
+      if (length > 15) { // تم زيادة الحد هنا ليتناسب مع الخيارات الجديدة
         choices = null;
       } else {
         choices = new BitWidth[length];
@@ -48,7 +49,6 @@ public class BitWidth implements Comparable<BitWidth> {
 
     @Override
     public Component getCellEditor(BitWidth value) {
-      // there are too many dropdown options, so use the default editor
       if (choices == null) return super.getCellEditor(value);
 
       final var combo = new ComboBox<>(choices);
@@ -99,7 +99,8 @@ public class BitWidth implements Comparable<BitWidth> {
 
   public static final BitWidth ONE = new BitWidth(1);
 
-  public static final int MAXWIDTH = Value.MAX_WIDTH;
+  // تم تعديل الحد الأقصى هنا مباشرة ليصبح 512 بت وثابت
+  public static final int MAXWIDTH = 512;
   public static final int MINWIDTH = 1;
 
   private static BitWidth[] prefab = null;
@@ -122,10 +123,10 @@ public class BitWidth implements Comparable<BitWidth> {
            : false;
   }
 
-  public long getMask() {
-    if (width == 0) return 0;
-    else if (width == MAXWIDTH) return -1L;
-    else return (1L << width) - 1;
+  // تم تعديل الدالة لتتعامل مع BigInteger لكي لا تنهار عند الإزاحة لأكثر من 64 بت
+  public BigInteger getMask() {
+    if (width == 0) return BigInteger.ZERO;
+    return BigInteger.ONE.shiftLeft(width).subtract(BigInteger.ONE);
   }
 
   public int getWidth() {
