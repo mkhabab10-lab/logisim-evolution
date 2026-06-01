@@ -19,6 +19,7 @@ import com.cburch.logisim.instance.StdAttr;
 import com.cburch.logisim.util.StringGetter;
 import com.cburch.logisim.util.StringUtil;
 import java.awt.Font;
+import java.math.BigInteger; // استيراد كلاس الحسابات الضخمة لدعم 512 بت
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -72,56 +73,68 @@ public class VhdlEntityAttributes extends AbstractAttributeSet {
     }
   }
 
-  public static class VhdlGenericAttribute extends Attribute<Integer> {
-    final int start;
-    final int end;
+  // تم ترقية الوراثة هنا لتدعم كائنات الـ BigInteger بدلاً من الأعداد الصحيحة المحدودة
+  public static class VhdlGenericAttribute extends Attribute<BigInteger> {
+    final BigInteger start;
+    final BigInteger end;
     final VhdlContent.Generic g;
 
-    private VhdlGenericAttribute(String name, StringGetter disp, int start, int end, VhdlContent.Generic generic) {
+    private VhdlGenericAttribute(String name, StringGetter disp, BigInteger start, BigInteger end, VhdlContent.Generic generic) {
       super(name, disp);
       this.start = start;
       this.end = end;
       this.g = generic;
     }
 
-    public VhdlContent.Generic getGeneric() {
-      return g;
+    @Override
+    public java.awt.Component getCellEditor(BigInteger value) {
+      // معالجة القيمة الافتراضية وتحويلها لـ BigInteger بأمان
+      BigInteger defVal;
+      try {
+        defVal = new BigInteger(g.getDefaultValue().toString());
+      } catch (Exception e) {
+        defVal = BigInteger.ZERO;
+      }
+      return super.getCellEditor(value != null ? value : defVal);
     }
 
     @Override
-    public java.awt.Component getCellEditor(Integer value) {
-      return super.getCellEditor(value != null ? value : g.getDefaultValue());
-    }
-
-    @Override
-    public Integer parse(String value) {
+    public BigInteger parse(String value) {
       if (value == null) return null;
       value = value.trim();
       if (value.length() == 0
           || value.equals("default")
           || value.equals("(default)")
           || value.equals(toDisplayString(null))) return null;
-      final var v = Long.parseLong(value);
-      if (v < start) throw new NumberFormatException("integer must be at least " + start);
-      if (v > end) throw new NumberFormatException("integer must be at most " + end);
-      return (int) v;
+      
+      // القراءة الآمنة للنصوص الحسابية الضخمة دون المرور بـ Long.parseLong القديمة
+      final var v = new BigInteger(value);
+      if (v.compareTo(start) < 0) throw new NumberFormatException("value must be at least " + start);
+      if (v.compareTo(end) > 0) throw new NumberFormatException("value must be at most " + end);
+      return v;
     }
 
     @Override
-    public String toDisplayString(Integer value) {
+    public String toDisplayString(BigInteger value) {
       return value == null ? "(default) " + g.getDefaultValue() : value.toString();
     }
   }
 
-  public static Attribute<Integer> forGeneric(VhdlContent.Generic generic) {
+  // تحديث دالة الإنشاء لتمرير أبعاد غير محدودة تدعم حتى الـ 512 بت
+  public static Attribute<BigInteger> forGeneric(VhdlContent.Generic generic) {
     final var name = generic.getName();
     final var disp = StringUtil.constantGetter(name);
+    
+    // تعريف قيم الحدود القصوى للـ 512 بت وأعلى باستخدام عمارة الـ BigInteger
+    BigInteger max_value = new BigInteger("2").pow(512).subtract(BigInteger.ONE);
+    BigInteger min_value = max_value.negate();
+
     if (generic.getType().equals("positive"))
-      return new VhdlGenericAttribute("vhdl_" + name, disp, 1, Integer.MAX_VALUE, generic);
+      return new VhdlGenericAttribute("vhdl_" + name, disp, BigInteger.ONE, max_value, generic);
     else if (generic.getType().equals("natural"))
-      return new VhdlGenericAttribute("vhdl_" + name, disp, 0, Integer.MAX_VALUE, generic);
+      return new VhdlGenericAttribute("vhdl_" + name, disp, BigInteger.ZERO, max_value, generic);
     else
-      return new VhdlGenericAttribute("vhdl_" + name, disp, Integer.MIN_VALUE, Integer.MAX_VALUE, generic);
+      return new VhdlGenericAttribute("vhdl_" + name, disp, min_value, max_value, generic);
   }
 
   private static final List<Attribute<?>> STATIC_ATTRIBUTES =
@@ -138,7 +151,8 @@ public class VhdlEntityAttributes extends AbstractAttributeSet {
   private Font labelFont = StdAttr.DEFAULT_LABEL_FONT;
   private Direction facing = Direction.EAST;
   private Boolean labelVisible = false;
-  private HashMap<Attribute<Integer>, Integer> genericValues;
+  // ترقية الخريطة الداخلية لتخزين قيم الـ BigInteger
+  private HashMap<Attribute<BigInteger>, BigInteger> genericValues;
   private List<Attribute<?>> instanceAttrs;
   private VhdlEntityListener listener;
 
@@ -167,7 +181,7 @@ public class VhdlEntityAttributes extends AbstractAttributeSet {
   }
 
   void updateGenerics() {
-    List<Attribute<Integer>> genericAttrs = content.getGenericAttributes();
+    List<Attribute<BigInteger>> genericAttrs = content.getGenericAttributes();
     instanceAttrs = new ArrayList<>(6 + genericAttrs.size());
     instanceAttrs.add(VhdlEntity.nameAttr);
     instanceAttrs.add(StdAttr.LABEL);
@@ -177,11 +191,11 @@ public class VhdlEntityAttributes extends AbstractAttributeSet {
     instanceAttrs.add(VhdlSimConstants.SIM_NAME_ATTR);
     instanceAttrs.addAll(genericAttrs);
     if (genericValues == null) genericValues = new HashMap<>();
-    ArrayList<Attribute<Integer>> toRemove = new ArrayList<>();
-    for (Attribute<Integer> a : genericValues.keySet()) {
+    ArrayList<Attribute<BigInteger>> toRemove = new ArrayList<>();
+    for (Attribute<BigInteger> a : genericValues.keySet()) {
       if (!genericAttrs.contains(a)) toRemove.add(a);
     }
-    for (Attribute<Integer> a : toRemove) {
+    for (Attribute<BigInteger> a : toRemove) {
       genericValues.remove(a);
     }
     fireAttributeListChanged();
@@ -190,14 +204,13 @@ public class VhdlEntityAttributes extends AbstractAttributeSet {
   @Override
   protected void copyInto(AbstractAttributeSet dest) {
     VhdlEntityAttributes attr = (VhdlEntityAttributes) dest;
-    attr.content = content; // .clone();
-    // attr.label = unchanged;
+    attr.content = content; 
     attr.labelFont = labelFont;
     attr.labelVisible = labelVisible;
     attr.facing = facing;
     attr.instanceAttrs = instanceAttrs;
     attr.genericValues = new HashMap<>();
-    for (Attribute<Integer> a : genericValues.keySet())
+    for (Attribute<BigInteger> a : genericValues.keySet())
       attr.genericValues.put(a, genericValues.get(a));
     attr.listener = null;
   }
@@ -299,7 +312,7 @@ public class VhdlEntityAttributes extends AbstractAttributeSet {
     }
 
     if (genericValues != null) {
-      genericValues.put((Attribute<Integer>) attr, (Integer) value);
+      genericValues.put((Attribute<BigInteger>) attr, (BigInteger) value);
       fireAttributeValueChanged(attr, value, null);
     }
   }
