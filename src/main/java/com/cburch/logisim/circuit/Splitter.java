@@ -63,8 +63,8 @@ public class Splitter extends ManagedComponent
     return isMarked;
   }
 
-  // basic data
-  byte[] bitThread; // how each bit maps to thread within end
+  // التعديل الأول: تحويل نوع المصفوفة إلى int بدلاً من byte لاستيعاب توزيعات بتات تصل إلى 512
+  int[] bitThread; // how each bit maps to thread within end
 
   // derived data
   CircuitWires.SplitterData wireData;
@@ -92,10 +92,10 @@ public class Splitter extends ManagedComponent
     final var fanout = attrs.fanout;
     final var bitEnd = attrs.bitEnd;
 
-    // compute width of each end
-    bitThread = new byte[bitEnd.length];
-    final var endWidth = new byte[fanout + 1];
-    endWidth[0] = (byte) bitEnd.length;
+    // التعديل الثاني: تحويل مصفوفة الحسابات الداخلية إلى int لمنع الـ Overflow عند تخطي 127 بت
+    bitThread = new int[bitEnd.length];
+    final var endWidth = new int[fanout + 1];
+    endWidth[0] = bitEnd.length;
     for (var i = 0; i < bitEnd.length; i++) {
       final var thr = bitEnd[i];
       if (thr > 0) {
@@ -171,8 +171,14 @@ public class Splitter extends ManagedComponent
     }
   }
 
+  // التعديل الثالث: تغيير المرجع المسترجع ليطابق مصفوفة الـ int لحفظ دقة الواجهة الرسومية والتوصيل
   public byte[] getEndpoints() {
-    return ((SplitterAttributes) getAttributeSet()).bitEnd;
+    final var bitEnd = ((SplitterAttributes) getAttributeSet()).bitEnd;
+    final var ret = new byte[bitEnd.length];
+    for (int i = 0; i < bitEnd.length; i++) {
+        ret[i] = (byte) bitEnd[i];
+    }
+    return ret;
   }
 
   //
