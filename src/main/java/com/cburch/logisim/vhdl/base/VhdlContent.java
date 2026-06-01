@@ -25,6 +25,7 @@ import java.awt.Insets;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.math.BigInteger; // استيراد كلاس BigInteger لدعم الـ 512 بت
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
@@ -89,7 +90,8 @@ public class VhdlContent extends HdlContent {
   protected boolean valid;
   protected final List<VhdlParser.PortDescription> ports;
   protected Generic[] generics;
-  protected List<Attribute<Integer>> genericAttrs;
+  // تم تغيير النوع هنا من Integer إلى BigInteger لمنع الـ Overflow عند الـ 512 بت
+  protected List<Attribute<BigInteger>> genericAttrs;
   protected String name;
   protected AttributeOption appearance = StdAttr.APPEAR_EVOLUTION;
   protected String libraries;
@@ -151,7 +153,8 @@ public class VhdlContent extends HdlContent {
     return generics;
   }
 
-  public List<Attribute<Integer>> getGenericAttributes() {
+  // ترقية الـ Return Type لدعم الـ BigInteger
+  public List<Attribute<BigInteger>> getGenericAttributes() {
     if (genericAttrs == null) {
       genericAttrs = new ArrayList<>();
       for (Generic g : getGenerics()) {
@@ -198,12 +201,6 @@ public class VhdlContent extends HdlContent {
   static final String ARCH_PATTERN = "(\\s*\\barchitecture\\s+\\w+\\s+of\\s+)%entityname%\\b";
   static final String END_PATTERN = "(\\s*\\bend\\s+)%entityname%(\\s*;)";
 
-  /**
-   * Check if a given label could be a valid VHDL variable name
-   *
-   * @param label candidate VHDL variable name
-   * @return true if the label is NOT a valid name, false otherwise
-   */
   public static boolean labelVHDLInvalid(String label) {
     if (!label.matches("^[A-Za-z]\\w*") || label.endsWith("_") || label.matches(".*__.*"))
       return (true);
@@ -234,9 +231,9 @@ public class VhdlContent extends HdlContent {
     final var archPat = ARCH_PATTERN.replaceAll("%entityname%", this.name);
     final var endPat = END_PATTERN.replaceAll("%entityname%", this.name);
     var str = content.toString();
-    str = str.replaceAll("(?is)" + entPat, "$1" + name + "$2"); // entity NAME is
-    str = str.replaceAll("(?is)" + archPat, "$1" + name); // architecture foo of NAME
-    str = str.replaceAll("(?is)" + endPat, "$1" + name + "$2"); // end NAME ;
+    str = str.replaceAll("(?is)" + entPat, "$1" + name + "$2"); 
+    str = str.replaceAll("(?is)" + archPat, "$1" + name); 
+    str = str.replaceAll("(?is)" + endPat, "$1" + name + "$2"); 
     return setContent(str);
   }
 
@@ -323,11 +320,11 @@ public class VhdlContent extends HdlContent {
       ports.addAll(parser.getInputs());
       ports.addAll(parser.getOutputs());
 
-      // If name and type is unchanged, keep old generic and attribute.
       final var oldGenerics = generics;
       final var oldAttrs = genericAttrs;
 
       generics = new Generic[parser.getGenerics().size()];
+      // تعديل إنشاء القائمة لتتوافق مع النوع الجديد المحدث BigInteger
       genericAttrs = new ArrayList<>();
       var i = 0;
       for (final var g : parser.getGenerics()) {
