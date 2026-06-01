@@ -37,7 +37,8 @@ public class BitWidth implements Comparable<BitWidth> {
       this.min = min;
       this.max = max;
       int length = max - min + 1;
-      if (length > 15) { // تم زيادة الحد هنا ليتناسب مع الخيارات الجديدة
+      // تعديل الشرط هنا ليتناسب مع النطاق الموسع بدلاً من الاختفاء عند تجاوز 15
+      if (length > 30) { 
         choices = null;
       } else {
         choices = new BitWidth[length];
@@ -59,7 +60,8 @@ public class BitWidth implements Comparable<BitWidth> {
 
     @Override
     public BitWidth parse(String value) {
-      int v = (int) Long.parseLong(value);
+      // تفادي انهيار الحجم عند التحويل إلى Long واستخدام Integer مباشرة
+      int v = Integer.parseInt(value.trim());
       if (v < min) throw new NumberFormatException("bit width must be at least " + min);
       if (v > max) throw new NumberFormatException("bit width must be at most " + max);
       return BitWidth.create(v);
@@ -92,7 +94,7 @@ public class BitWidth implements Comparable<BitWidth> {
       throw new NumberFormatException("Width string cannot be null");
     }
     if (str.charAt(0) == '/') str = str.substring(1);
-    return create(Integer.parseInt(str));
+    return create(Integer.parseInt(str.trim()));
   }
 
   public static final BitWidth UNKNOWN = new BitWidth(0);
@@ -123,8 +125,15 @@ public class BitWidth implements Comparable<BitWidth> {
            : false;
   }
 
-  // تم تعديل الدالة لتتعامل مع BigInteger لكي لا تنهار عند الإزاحة لأكثر من 64 بت
-  public BigInteger getMask() {
+  // إبقاء الدالة القديمة كما هي للأجزاء العادية التي تتوقع int منعاً لانهيار المشروع
+  public int getMask() {
+    if (width == 0) return 0;
+    if (width >= 32) return -1; // يعود بقناع كامل لـ 32 بت (0xFFFFFFFF)
+    return (1 << width) - 1;
+  }
+
+  // إضافة دالة جديدة مخصصة للتعامل الآمن مع الحسابات الضخمة حتى 512 بت
+  public BigInteger getBigMask() {
     if (width == 0) return BigInteger.ZERO;
     return BigInteger.ONE.shiftLeft(width).subtract(BigInteger.ONE);
   }
