@@ -14,13 +14,15 @@ import com.cburch.hex.HexModelListener;
 import com.cburch.logisim.prefs.AppPreferences;
 import com.cburch.logisim.util.EventSourceWeakSupport;
 import java.util.Arrays;
+import java.math.BigInteger; // استيراد مكتبة الأرقام الكبيرة لحماية الـ Mask
 
 public class MemContents implements Cloneable, HexModel {
   public static MemContents create(int addrBits, int width, boolean randomize) {
     return new MemContents(addrBits, width, randomize);
   }
 
-  private static final int PAGE_SIZE_BITS = 12;
+  // التعديل الأول: رفع حجم الصفحة التخزينية لتقليل عدد الصفحات وحماية رامات الجهاز من النفاد
+  private static final int PAGE_SIZE_BITS = 14;
   private static final int PAGE_SIZE = 1 << PAGE_SIZE_BITS;
 
   private static final int PAGE_MASK = PAGE_SIZE - 1;
@@ -28,7 +30,7 @@ public class MemContents implements Cloneable, HexModel {
   private EventSourceWeakSupport<HexModelListener> listeners = null;
   private int width;
   private int addrBits;
-  private long mask;
+  private long mask; // ملاحظة: هذا القناع سيظل يعمل محلياً للقيم الفردية المسترجعة كـ long
   private Page[] pages;
   private boolean randomize;
 
@@ -401,7 +403,13 @@ public class MemContents implements Cloneable, HexModel {
     if (addrBits == this.addrBits && width == this.width) return;
     this.addrBits = addrBits;
     this.width = width;
-    this.mask = width == 64 ? -1L : ((1L << width) - 1);
+    
+    // التعديل الثاني: استخدام BigInteger لحساب الـ mask بدلاً من الإزاحة المحدودة بـ 64 بت لتفادي أخطاء الـ Overflow
+    if (width >= 64) {
+        this.mask = -1L;
+    } else {
+        this.mask = BigInteger.ONE.shiftLeft(width).subtract(BigInteger.ONE).longValue();
+    }
 
     final var oldPages = pages;
     int pageCount;
