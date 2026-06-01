@@ -67,8 +67,10 @@ public abstract class Mem extends InstanceFactory {
   }
 
   public static final int SymbolWidth = 200;
+  
+  // التعديل الأول: رفع الحد الأقصى لعرض البتات في التعريف الخاص بالعناوين إلى 256
   public static final Attribute<BitWidth> ADDR_ATTR =
-      Attributes.forBitWidth("addrWidth", S.getter("ramAddrWidthAttr"), 2, 24);
+      Attributes.forBitWidth("addrWidth", S.getter("ramAddrWidthAttr"), 2, 256);
 
   public static final Attribute<BitWidth> DATA_ATTR =
       Attributes.forBitWidth("dataWidth", S.getter("ramDataWidthAttr"));
@@ -124,9 +126,11 @@ public abstract class Mem extends InstanceFactory {
     super(name, desc, generator, needsLabel);
     currentInstanceFiles = new WeakHashMap<>();
     setInstancePoker(MemPoker.class);
+    
+    // التعديل الثاني والثالث: رفع حدود الـ BitWidthConfigurator لتسمح بمدى يصل إلى 256 بت للعناوين
     setKeyConfigurator(
         JoinedConfigurator.create(
-            new BitWidthConfigurator(ADDR_ATTR, 2, 24, 0), new BitWidthConfigurator(DATA_ATTR)));
+            new BitWidthConfigurator(ADDR_ATTR, 2, 256, 0), new BitWidthConfigurator(DATA_ATTR)));
 
     setOffsetBounds(Bounds.create(-140, -40, 140, 80));
   }
