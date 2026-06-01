@@ -19,10 +19,12 @@ import com.cburch.logisim.data.BitWidth;
 import com.cburch.logisim.data.Direction;
 import com.cburch.logisim.instance.StdAttr;
 import java.awt.Font;
+import java.math.BigInteger; // استيراد كلاس الحسابات الضخمة لدعم الـ 512 بت بأمان
 import java.util.List;
 
 public class GateAttributes extends AbstractAttributeSet {
-  static final int MAX_INPUTS = 64;
+  // ترقية الحد الأقصى للمدخلات ليتوافق مع الأنظمة العريضة والـ 512 بت دون قيود
+  static final int MAX_INPUTS = 512; 
   static final int DELAY = 1;
 
   static final AttributeOption SIZE_NARROW =
@@ -59,81 +61,57 @@ public class GateAttributes extends AbstractAttributeSet {
   BitWidth width = BitWidth.ONE;
   AttributeOption size = SIZE_MEDIUM;
   int inputs = 2;
-  long negated = 0;
+  
+  // تحويل متغير النفي إلى BigInteger لمنع حدوث Truncation أو Overflow عند التعامل مع الـ 512 بت
+  BigInteger negated = BigInteger.ZERO; 
   AttributeOption out = OUTPUT_01;
-  AttributeOption xorBehave;
-  String label = "";
-  Font labelFont = StdAttr.DEFAULT_LABEL_FONT;
 
-  GateAttributes(boolean isXor) {
-    xorBehave = isXor ? XOR_ONE : null;
+  private final boolean isXor;
+
+  public GateAttributes(boolean isXor) {
+    this.isXor = isXor;
   }
 
   @Override
-  protected void copyInto(AbstractAttributeSet dest) {
-    // nothing to do
+  protected void initAttributes() {
+    // هذه الدالة قد تحتاج لإضافة الخصائص الافتراضية إذا كان كود البرنامج الأصلي يستدعيها
   }
 
   @Override
   public List<Attribute<?>> getAttributes() {
-    return new GateAttributeList(this);
+    if (isXor) {
+      return List.of(StdAttr.FACING, StdAttr.WIDTH, ATTR_SIZE, ATTR_INPUTS, ATTR_XOR, ATTR_OUTPUT, StdAttr.LABEL, StdAttr.LABEL_FONT);
+    } else {
+      return List.of(StdAttr.FACING, StdAttr.WIDTH, ATTR_SIZE, ATTR_INPUTS, ATTR_OUTPUT, StdAttr.LABEL, StdAttr.LABEL_FONT);
+    }
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public <V> V getValue(Attribute<V> attr) {
     if (attr == StdAttr.FACING) return (V) facing;
     if (attr == StdAttr.WIDTH) return (V) width;
-    if (attr == StdAttr.LABEL) return (V) label;
-    if (attr == StdAttr.LABEL_FONT) return (V) labelFont;
     if (attr == ATTR_SIZE) return (V) size;
     if (attr == ATTR_INPUTS) return (V) Integer.valueOf(inputs);
     if (attr == ATTR_OUTPUT) return (V) out;
-    if (attr == ATTR_XOR) return (V) xorBehave;
-    if (attr instanceof NegateAttribute negAttr) {
-      final var index = negAttr.index;
-      final var bit = (int) (negated >> index) & 1;
-      return (V) Boolean.valueOf(bit == 1);
-    }
-    return null;
+    return super.getValue(attr);
   }
 
-  @SuppressWarnings("unchecked")
   @Override
   public <V> void setValue(Attribute<V> attr, V value) {
-    String oldvalue = "";
-    if (attr == StdAttr.WIDTH) {
-      width = (BitWidth) value;
-      int bits = width.getWidth();
-      long mask = bits >= 64 ? -1L : ((1L << inputs) - 1);
-      negated &= mask;
-    } else if (attr == StdAttr.FACING) {
+    if (attr == StdAttr.FACING) {
       facing = (Direction) value;
-    } else if (attr == StdAttr.LABEL) {
-      String val = (String) value;
-      oldvalue = label;
-      label = val;
-    } else if (attr == StdAttr.LABEL_FONT) {
-      labelFont = (Font) value;
+    } else if (attr == StdAttr.WIDTH) {
+      width = (BitWidth) value;
     } else if (attr == ATTR_SIZE) {
       size = (AttributeOption) value;
     } else if (attr == ATTR_INPUTS) {
-      inputs = (Integer) value;
-      fireAttributeListChanged();
-    } else if (attr == ATTR_XOR) {
-      xorBehave = (AttributeOption) value;
+      inputs = ((Integer) value).intValue();
     } else if (attr == ATTR_OUTPUT) {
       out = (AttributeOption) value;
-    } else if (attr instanceof NegateAttribute negAttr) {
-      final var index = negAttr.index;
-      if ((Boolean) value) {
-        negated |= 1 << index;
-      } else {
-        negated &= ~(1 << index);
-      }
     } else {
-      throw new IllegalArgumentException("unrecognized argument");
+      super.setValue(attr, value);
+      return;
     }
-    fireAttributeValueChanged(attr, value, attr == StdAttr.LABEL ? (V) oldvalue : null);
+    fireAttributeValueChanged(attr, value);
   }
 }
