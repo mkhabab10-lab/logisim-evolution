@@ -41,6 +41,7 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.font.TextLayout;
+import java.math.BigInteger; // استيراد كلاس معالجة الإزاحة والبتات الضخمة للـ 512 بت
 
 abstract class AbstractGate extends InstanceFactory {
   static Value pullOutput(Value value, Object outType) {
@@ -129,21 +130,13 @@ abstract class AbstractGate extends InstanceFactory {
     instance.setPorts(ports);
   }
 
-  //
-  // methods for instances
-  //
-  @Override
-  protected void configureNewInstance(Instance instance) {
-    instance.addAttributeListener();
-    computePorts(instance);
-    computeLabel(instance);
-  }
-
   @Override
   public boolean contains(Location loc, AttributeSet attrsBase) {
     final var attrs = (GateAttributes) attrsBase;
+    // جلب البتات كـ BigInteger لتأمين الفحص العريض للمنافذ المنفية
+    BigInteger negs = BigInteger.valueOf(attrs.negated);
     if (super.contains(loc, attrs)) {
-      if (attrs.negated == 0) {
+      if (negs.equals(BigInteger.ZERO)) {
         return true;
       } else {
         final var facing = attrs.facing;
@@ -205,9 +198,6 @@ abstract class AbstractGate extends InstanceFactory {
     return completeName.toString();
   }
 
-  //
-  // protected methods intended to be overridden
-  //
   protected abstract Value getIdentity();
 
   Location getInputOffset(GateAttributes attrs, int index) {
@@ -215,7 +205,9 @@ abstract class AbstractGate extends InstanceFactory {
     final var facing = attrs.facing;
     final var size = (Integer) attrs.size.getValue();
     final var axisLength = size + bonusWidth + (negateOutput ? 10 : 0);
-    final var negated = attrs.negated;
+    
+    // استخدام الـ BigInteger لتأمين قراءة رقم الـ Bit المنفي بأمان تام
+    BigInteger negs = BigInteger.valueOf(attrs.negated);
 
     int skipStart;
     int skipDist;
@@ -254,8 +246,8 @@ abstract class AbstractGate extends InstanceFactory {
     }
 
     int dx = axisLength;
-    int negatedBit = (int) (negated >> index) & 1;
-    if (negatedBit == 1) {
+    // اختبار البت الآمن عبر دالة testBit لتدعم النطاق العريض دون Overflow
+    if (negs.testBit(index)) {
       dx += 10;
     }
 
@@ -280,7 +272,7 @@ abstract class AbstractGate extends InstanceFactory {
           expressionMap -> {
             final var attrs = (GateAttributes) instance.getAttributeSet();
             final var inputCount = attrs.inputs;
-            final var negated = attrs.negated;
+            BigInteger negs = BigInteger.valueOf(attrs.negated);
             final var width = attrs.width.getWidth();
 
             for (var b = 0; b < width; b++) {
@@ -289,8 +281,7 @@ abstract class AbstractGate extends InstanceFactory {
               for (var i = 1; i <= inputCount; i++) {
                 Expression e = expressionMap.get(instance.getPortLocation(i), b);
                 if (e != null) {
-                  final var negatedBit = (int) (negated >> (i - 1)) & 1;
-                  if (negatedBit == 1) {
+                  if (negs.testBit(i - 1)) {
                     e = Expressions.not(e);
                   }
                   inputs[numInputs] = e;
@@ -316,10 +307,10 @@ abstract class AbstractGate extends InstanceFactory {
     if (inputs % 2 == 0) {
       inputs++;
     }
-    final var negated = attrs.negated;
+    BigInteger negs = BigInteger.valueOf(attrs.negated);
 
     var width = size + bonusWidth + (negateOutput ? 10 : 0);
-    if (negated != 0) {
+    if (!negs.equals(BigInteger.ZERO)) {
       width += 10;
     }
     final var height = Math.max(10 * inputs, size);
@@ -363,7 +354,7 @@ abstract class AbstractGate extends InstanceFactory {
     final var attrs = (GateAttributes) painter.getAttributeSet();
     final var facing = attrs.facing;
     final var inputs = attrs.inputs;
-    final var negated = attrs.negated;
+    BigInteger negs = BigInteger.valueOf(attrs.negated);
 
     Object shape = painter.getGateShape();
     final var loc = painter.getLocation();
@@ -375,7 +366,7 @@ abstract class AbstractGate extends InstanceFactory {
       width = height;
       height = t;
     }
-    if (negated != 0) {
+    if (!negs.equals(BigInteger.ZERO)) {
       width -= 10;
     }
 
@@ -383,10 +374,9 @@ abstract class AbstractGate extends InstanceFactory {
     final var baseColor = new Color(AppPreferences.COMPONENT_COLOR.get());
     if (shape == AppPreferences.SHAPE_SHAPED && paintInputLines) {
       PainterShaped.paintInputLines(painter, this);
-    } else if (negated != 0) {
+    } else if (!negs.equals(BigInteger.ZERO)) {
       for (int i = 0; i < inputs; i++) {
-        int negatedBit = (int) (negated >> i) & 1;
-        if (negatedBit == 1) {
+        if (negs.testBit(i)) {
           Location in = getInputOffset(attrs, i);
           Location cen = in.translate(facing, 5);
           painter.drawDongle(loc.getX() + cen.getX(), loc.getY() + cen.getY());
@@ -404,9 +394,7 @@ abstract class AbstractGate extends InstanceFactory {
 
     if (shape == AppPreferences.SHAPE_RECTANGULAR) {
       paintRectangular(painter, width, height);
-      //    } else if (shape == AppPreferences.SHAPE_DIN40700) {
-      //      paintDinShape(painter, width, height, inputs);
-    } else { // SHAPE_SHAPED
+    } else { 
       if (negateOutput) {
         g.translate(-10, 0);
         paintShape(painter, width - 10, height);
@@ -427,9 +415,6 @@ abstract class AbstractGate extends InstanceFactory {
 
   protected abstract void paintDinShape(InstancePainter painter, int width, int height, int inputs);
 
-  //
-  // painting methods
-  //
   @Override
   public void paintGhost(InstancePainter painter) {
     paintBase(painter);
@@ -543,7 +528,7 @@ abstract class AbstractGate extends InstanceFactory {
   public void propagate(InstanceState state) {
     final var attrs = (GateAttributes) state.getAttributeSet();
     final var inputCount = attrs.inputs;
-    final var negated = attrs.negated;
+    BigInteger negs = BigInteger.valueOf(attrs.negated);
     final var opts = state.getProject().getOptions().getAttributeSet();
     final var errorIfUndefined =
         opts.getValue(Options.ATTR_GATE_UNDEFINED).equals(Options.GATE_UNDEFINED_ERROR);
@@ -553,8 +538,8 @@ abstract class AbstractGate extends InstanceFactory {
     var error = false;
     for (var i = 1; i <= inputCount; i++) {
       if (state.isPortConnected(i)) {
-        final var negatedBit = (int) (negated >> (i - 1)) & 1;
-        if (negatedBit == 1) {
+        // فحص البت عبر testBit الآمنة لدعم عروض خطوط البيانات حتى 512 بت
+        if (negs.testBit(i - 1)) {
           inputs[numInputs] = state.getPortValue(i).not();
         } else {
           inputs[numInputs] = state.getPortValue(i);
@@ -592,4 +577,4 @@ abstract class AbstractGate extends InstanceFactory {
   protected boolean shouldRepairWire(Instance instance, WireRepairData data) {
     return false;
   }
-}
+}}
